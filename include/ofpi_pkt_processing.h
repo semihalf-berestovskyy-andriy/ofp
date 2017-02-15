@@ -62,4 +62,7 @@ static inline int ofp_send_pkt_multi(struct ofp_ifnet *ifnet,
 	}
 }
 
+enum ofp_return_code ofp_ip_output_real(odp_packet_t pkt,
+					struct ofp_nh_entry *nh_param);
+
 #endif /* _OFPI_APP_H */

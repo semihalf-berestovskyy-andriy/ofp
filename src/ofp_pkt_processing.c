@@ -51,6 +51,10 @@
 #include "ofpi_if_vxlan.h"
 #include "ofpi_vxlan.h"
 #include "api/ofp_init.h"
+#include "api/ofp_ipsec.h"
+#include "api/ofp_ipsec_spd.h"
+#include "api/ofp_ipsec_sad.h"
+
 
 extern odp_pool_t ofp_packet_pool;
 
@@ -169,6 +173,10 @@ enum ofp_return_code ofp_eth_vlan_processing(odp_packet_t pkt)
 	}
 
 	OFP_DBG("ETH TYPE = %04x", ethtype);
+
+	/* TODO: Fix the mess */
+	if (ifnet->port != VXLAN_PORTS)
+		ofp_ipsec_flags_set(pkt, 0); /* clear IPSEC_DONE flags */
 
 	/* network layer classifier */
 	switch (ethtype) {
@@ -344,6 +352,13 @@ enum ofp_return_code ofp_ipv4_processing(odp_packet_t pkt)
 			ip = (struct ofp_ip *)odp_packet_l3_ptr(pkt, NULL);
 		}
 
+		if (ip->ip_p != OFP_IPPROTO_ESP &&
+		    ip->ip_p != OFP_IPPROTO_AH &&
+		    ((ofp_ipsec_flags(pkt) & OFP_IPSEC_INBOUND_DONE) == 0) &&
+		    ofp_ipsec_sp_in_lookup(dev->vrf, pkt)
+		    != OFP_IPSEC_ACTION_BYPASS)
+			return OFP_PKT_DROP;
+
 		OFP_HOOK(OFP_HOOK_LOCAL, pkt, &protocol, &res);
 		if (res != OFP_PKT_CONTINUE) {
 			OFP_DBG("OFP_HOOK_LOCAL returned %d", res);
@@ -358,6 +373,10 @@ enum ofp_return_code ofp_ipv4_processing(odp_packet_t pkt)
 
 		return ipv4_transport_classifier(pkt, ip->ip_p);
 	}
+
+	if ((ofp_ipsec_flags(pkt) & OFP_IPSEC_INBOUND_DONE) == 0 &&
+	    ofp_ipsec_sp_in_lookup(dev->vrf, pkt) != OFP_IPSEC_ACTION_BYPASS)
+		return OFP_PKT_DROP;
 
 	OFP_HOOK(OFP_HOOK_FWD_IPv4, pkt, nh, &res);
 	if (res != OFP_PKT_CONTINUE) {
@@ -407,7 +426,7 @@ enum ofp_return_code ofp_ipv4_processing(odp_packet_t pkt)
 	}
 #endif
 
-	return ofp_ip_output(pkt, nh);
+	return ofp_ip_output_real(pkt, nh);
 }
 
 #ifdef INET6
@@ -1079,7 +1098,7 @@ static enum ofp_return_code ofp_ip_output_find_route(odp_packet_t pkt,
 	return OFP_PKT_CONTINUE;
 }
 
-enum ofp_return_code ofp_ip_output(odp_packet_t pkt,
+enum ofp_return_code ofp_ip_output_real(odp_packet_t pkt,
 	struct ofp_nh_entry *nh_param)
 {
 	struct ofp_ifnet *send_ctx = odp_packet_user_ptr(pkt);
@@ -1096,6 +1115,13 @@ enum ofp_return_code ofp_ip_output(odp_packet_t pkt,
 	odata.vrf = send_ctx ? send_ctx->vrf : 0;
 	odata.is_local_address = 0;
 	odata.nh = nh_param;
+
+	/*
+	 * TODO: Forwarded traffic w/o route never gets here but
+	 * we should be able to IPsec it too.
+	 */
+	if ((ret = ofp_ipsec_output(odata.vrf, pkt)) != OFP_PKT_CONTINUE)
+		return ret;
 
 	if ((ret = ofp_ip_output_find_route(pkt, &odata)) != OFP_PKT_CONTINUE)
 		return ret;
@@ -1119,6 +1145,16 @@ enum ofp_return_code ofp_ip_output(odp_packet_t pkt,
 			return ret;
 
 	return ofp_ip_output_send(pkt, &odata);
+}
+
+/*
+ * Output from upper layers. Not forwarded or IPsec encapsulated traffic.
+ */
+enum ofp_return_code ofp_ip_output(odp_packet_t pkt,
+				   struct ofp_nh_entry *nh_param)
+{
+	ofp_ipsec_flags_set(pkt, OFP_IPSEC_OUTBOUND_DONE);
+	return ofp_ip_output_real(pkt, nh_param);
 }
 
 enum ofp_return_code  ofp_ip_output_opt(odp_packet_t pkt, odp_packet_t opt,

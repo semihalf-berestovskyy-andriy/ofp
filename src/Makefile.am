@@ -75,7 +75,10 @@ ofp_in_mcast.c \
 ofp_vxlan.c \
 ofp_shared_mem.c \
 ofp_uma.c \
-ofp_epoll.c
+ofp_epoll.c \
+ipsec/ofp_ipsec.c \
+ipsec/ofp_ipsec_spd.c \
+ipsec/ofp_ipsec_sad.c
 
 if OFP_USE_LIBCK
 AM_CFLAGS +=  -DOFP_USE_LIBCK
