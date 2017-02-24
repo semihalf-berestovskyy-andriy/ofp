@@ -13,9 +13,9 @@
 #include "ofpi_pkt_processing.h"
 #include "ofpi_in.h"
 #include "ofpi_ip.h"
-#include "api/ofp_ipsec.h"
-#include "api/ofp_ipsec_spd.h"
-#include "api/ofp_ipsec_sad.h"
+#include "ofpi_ipsec.h"
+#include "ofpi_ipsec_spd.h"
+#include "ofpi_ipsec_sad.h"
 
 /*
  * IPsec async processing context stored in the user area of packets

@@ -11,7 +11,7 @@
 #include "ofpi_in.h"
 #include "ofpi_ip.h"
 #include "ofpi_shared_mem.h"
-#include "api/ofp_ipsec_sad.h"
+#include "ofpi_ipsec_sad.h"
 
 #define OFP_IPSEC_MAX_SA 100
 

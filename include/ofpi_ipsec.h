@@ -4,13 +4,13 @@
  *
  * SPDX-License-Identifier:     BSD-3-Clause
  */
-#ifndef OFP_IPSEC_H
-#define OFP_IPSEC_H
+#ifndef OFPI_IPSEC_H
+#define OFPI_IPSEC_H
 
 #include <odp.h>
 #include "api/ofp_types.h"
-#include "api/ofp_ipsec_spd.h"
-#include "api/ofp_ipsec_sad.h"
+#include "ofpi_ipsec_spd.h"
+#include "ofpi_ipsec_sad.h"
 
 /*
  * Initialize IPsec. Must be called in single thread before starting
@@ -79,4 +79,4 @@ enum ofp_return_code ofp_ipsec_output(uint16_t vrf, odp_packet_t pkt);
 enum ofp_return_code ofp_esp4_input(odp_packet_t pkt, int off);
 enum ofp_return_code ofp_ah4_input(odp_packet_t pkt, int off);
 
-#endif /* OFP_IPSEC_H */
+#endif /* OFPI_IPSEC_H */

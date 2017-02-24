@@ -51,9 +51,9 @@
 #include "ofpi_if_vxlan.h"
 #include "ofpi_vxlan.h"
 #include "api/ofp_init.h"
-#include "api/ofp_ipsec.h"
-#include "api/ofp_ipsec_spd.h"
-#include "api/ofp_ipsec_sad.h"
+#include "ofpi_ipsec.h"
+#include "ofpi_ipsec_spd.h"
+#include "ofpi_ipsec_sad.h"
 
 
 extern odp_pool_t ofp_packet_pool;

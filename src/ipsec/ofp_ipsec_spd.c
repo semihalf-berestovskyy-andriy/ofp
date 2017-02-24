@@ -12,8 +12,8 @@
 #include "ofpi_in.h"
 #include "ofpi_ip.h"
 #include "ofpi_shared_mem.h"
-#include "api/ofp_ipsec_spd.h"
-#include "api/ofp_ipsec_sad.h"
+#include "ofpi_ipsec_spd.h"
+#include "ofpi_ipsec_sad.h"
 
 
 struct ofp_ipsec_sp {

@@ -4,12 +4,12 @@
  *
  * SPDX-License-Identifier:     BSD-3-Clause
  */
-#ifndef OFP_IPSEC_SPD_H
-#define OFP_IPSEC_SPD_H
+#ifndef OFPI_IPSEC_SPD_H
+#define OFPI_IPSEC_SPD_H
 
 #include <odp.h>
 #include "api/ofp_types.h"
-#include "api/ofp_ipsec_sad.h"
+#include "ofpi_ipsec_sad.h"
 
 typedef struct {
 	uint32_t begin;
@@ -88,4 +88,4 @@ ofp_ipsec_sp_action ofp_ipsec_sp_out_lookup(uint16_t vrf, odp_packet_t pkt,
  */
 ofp_ipsec_sp_action ofp_ipsec_sp_in_lookup(uint16_t vrf, odp_packet_t pkt);
 
-#endif /* OFP_IPSEC_SPD_H */
+#endif /* OFPI_IPSEC_SPD_H */

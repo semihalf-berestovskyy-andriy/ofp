@@ -4,8 +4,8 @@
  *
  * SPDX-License-Identifier:     BSD-3-Clause
  */
-#ifndef OFP_IPSEC_SAD_H
-#define OFP_IPSEC_SAD_H
+#ifndef OFPI_IPSEC_SAD_H
+#define OFPI_IPSEC_SAD_H
 
 #include <odp.h>
 #include "api/ofp_types.h"
@@ -116,4 +116,4 @@ void ofp_ipsec_sa_ref(ofp_ipsec_sa_handle sa);
  */
 void ofp_ipsec_sa_unref(ofp_ipsec_sa_handle sa);
 
-#endif /* OFP_IPSEC_SAD_H */
+#endif /* OFPI_IPSEC_SAD_H */

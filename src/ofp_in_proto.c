@@ -44,7 +44,7 @@
 #include "ofpi_udp_var.h"
 #include "ofpi_tcp_var.h"
 #include "ofpi_socket.h"
-#include "api/ofp_ipsec.h"
+#include "ofpi_ipsec.h"
 
 extern	struct pr_usrreqs nousrreqs;
 
