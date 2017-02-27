@@ -887,7 +887,7 @@ avl_get_span_by_key (avl_tree * tree,
                      unsigned long * low,
                      unsigned long * high)
 {
-    unsigned long m, i, j;
+    unsigned long m = 0, i, j;
     avl_node * node;
 
     node = avl_get_index_by_key (tree, key, &m);
@@ -931,7 +931,7 @@ avl_get_span_by_two_keys (avl_tree * tree,
                           unsigned long * low,
                           unsigned long * high)
 {
-    unsigned long i, j;
+    unsigned long i = 0, j = 0;
     avl_node * low_node, * high_node;
     int order;
 

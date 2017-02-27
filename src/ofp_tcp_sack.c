@@ -338,7 +338,7 @@ void
 ofp_tcp_sack_doack(struct tcpcb *tp, struct tcpopt *to, tcp_seq th_ack)
 {
 	struct sackhole *cur, *temp;
-	struct sackblk sack, sack_blocks[OFP_TCP_MAX_SACK + 1], *sblkp;
+	struct sackblk sack, sack_blocks[OFP_TCP_MAX_SACK + 2], *sblkp;
 	int i, j, num_sack_blks;
 
 	INP_WLOCK_ASSERT(tp->t_inpcb);

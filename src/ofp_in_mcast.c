@@ -990,7 +990,7 @@ ims_merge(struct ofp_ip_msource *ims, const struct ofp_in_msource *lims,
 static int
 inm_merge(struct ofp_in_multi *inm, /*const*/ struct ofp_in_mfilter *imf)
 {
-	struct ofp_ip_msource	*ims, *nims;
+	struct ofp_ip_msource	*ims, *nims = NULL;
 	struct ofp_in_msource	*lims;
 	int			 schanged, error;
 	int			 nsrc0, nsrc1;
