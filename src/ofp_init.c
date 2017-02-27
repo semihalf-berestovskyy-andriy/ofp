@@ -462,6 +462,11 @@ static void schedule_shutdown(void)
 					odp_crypto_compl_from_event(evt));
 				break;
 			}
+		case ODP_EVENT_IPSEC_RESULT:
+			{
+				/* TODO: free IPSEC result */
+				break;
+			}
 		}
 	}
 
