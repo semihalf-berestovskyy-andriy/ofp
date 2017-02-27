@@ -13,6 +13,7 @@
 #include "ofpi_pkt_processing.h"
 #include "ofpi_in.h"
 #include "ofpi_ip.h"
+#include "api/ofp_ipsec.h"
 #include "ofpi_ipsec.h"
 #include "ofpi_ipsec_spd.h"
 #include "ofpi_ipsec_sad.h"
@@ -137,7 +138,7 @@ static enum ofp_return_code ofp_ipsec_sa_acquire(uint16_t vrf,
 enum ofp_return_code ofp_ipsec_output(uint16_t vrf,
 				      odp_packet_t pkt)
 {
-	ofp_ipsec_sp_action action;
+	ofp_ipsec_action_t action;
 	ofp_ipsec_sa_handle sa;
 
 	if (ofp_ipsec_flags(pkt) & OFP_IPSEC_OUTBOUND_DONE)
@@ -147,7 +148,7 @@ enum ofp_return_code ofp_ipsec_output(uint16_t vrf,
 	switch (action) {
 	case OFP_IPSEC_ACTION_BYPASS:
 		return OFP_PKT_CONTINUE;
-	case OFP_IPSEC_ACTION_IPSEC:
+	case OFP_IPSEC_ACTION_PROTECT:
 		if (odp_unlikely(sa == OFP_IPSEC_SA_INVALID)) {
 			return ofp_ipsec_sa_acquire(vrf, pkt);
 		} else
@@ -192,7 +193,7 @@ static enum ofp_return_code ofp_ipsec_decaps(uint16_t vrf,
 					     ofp_ipsec_sa_handle sa)
 {
 	odp_ipsec_op_param_t param = {0};
-	const ofp_ipsec_sa_param *sa_param = ofp_ipsec_sa_get_param(sa);
+	const ofp_ipsec_sa_param_t *sa_param = ofp_ipsec_sa_get_param(sa);
 	odp_ipsec_sa_t odp_sa = ofp_ipsec_sa_get_odp_sa(sa);
 	ofp_ipsec_pkt_metadata *m = odp_packet_user_area(pkt);
 	int ret;
@@ -206,7 +207,7 @@ static enum ofp_return_code ofp_ipsec_decaps(uint16_t vrf,
 
 	m->op_ctx.sa = sa;
 	m->op_ctx.is_outbound = 0;
-	m->op_ctx.is_tunnel = (sa_param->mode == OFP_IPSEC_TUNNEL);
+	m->op_ctx.is_tunnel = (sa_param->mode == OFP_IPSEC_MODE_TUNNEL);
 
 	param.num_pkt = 1;
 	param.num_sa = 1;
@@ -262,7 +263,7 @@ static enum ofp_return_code ofp_ipsec_encaps(uint16_t vrf,
 					     ofp_ipsec_sa_handle sa)
 {
 	odp_ipsec_op_param_t param = {0};
-	const ofp_ipsec_sa_param *sa_param = ofp_ipsec_sa_get_param(sa);
+	const ofp_ipsec_sa_param_t *sa_param = ofp_ipsec_sa_get_param(sa);
 	odp_ipsec_sa_t odp_sa = ofp_ipsec_sa_get_odp_sa(sa);
 	ofp_ipsec_pkt_metadata *m = odp_packet_user_area(pkt);
 	int ret;
@@ -276,7 +277,7 @@ static enum ofp_return_code ofp_ipsec_encaps(uint16_t vrf,
 
 	m->op_ctx.sa = sa;
 	m->op_ctx.is_outbound = 1;
-	m->op_ctx.is_tunnel = (sa_param->mode == OFP_IPSEC_TUNNEL); /* now unused */
+	m->op_ctx.is_tunnel = (sa_param->mode == OFP_IPSEC_MODE_TUNNEL); /* now unused */
 
 	if (!m->op_ctx.is_tunnel) {
 		/* TODO: check that this is not a forwarded packet */

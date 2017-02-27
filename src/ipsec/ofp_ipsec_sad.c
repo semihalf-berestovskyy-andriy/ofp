@@ -8,6 +8,7 @@
 #include <odp.h>
 #include "api/ofp_types.h"
 #include "api/ofp_log.h"
+#include "api/ofp_ipsec.h"
 #include "ofpi_in.h"
 #include "ofpi_ip.h"
 #include "ofpi_shared_mem.h"
@@ -29,7 +30,7 @@ struct ofp_ipsec_sa {
 	odp_atomic_u32_t refcount;
 	uint32_t idx;                /* idx of this SA */
 	uint32_t next;               /* idx of the next SA in a linked list */
-	ofp_ipsec_sa_param sa_param;
+	ofp_ipsec_sa_param_t sa_param;
 };
 
 #define SHM_NAME_IPSEC_SAD "ofp_ipsec_sad"
@@ -38,16 +39,14 @@ static __thread struct ofp_ipsec_sad *shm;
 #define SHM_NAME_IPSEC_SA_TABLE "ofp_ipsec_sa_table"
 static __thread struct ofp_ipsec_sa *shm_sa_table;
 
-static struct ofp_ipsec_sa *ofp_ipsec_sa_find_by_id(uint32_t list_head,
-						    uint16_t vrf,
-						    uint32_t id);
+static struct ofp_ipsec_sa *ofp_ipsec_sa_find(uint32_t list_head, uint16_t vrf,
+					      ofp_ipsec_sa_handle h);
 
-static int ofp_ipsec_sa_init(struct ofp_ipsec_sa *sa,
-			     const ofp_ipsec_sa_param *param);
+static int ofp_ipsec_sa_init(uint16_t vrf, struct ofp_ipsec_sa *sa,
+			     const ofp_ipsec_sa_param_t *param);
 
-static struct ofp_ipsec_sa* ofp_ipsec_sa_in_lookup_unsafe(uint16_t vrf,
+static struct ofp_ipsec_sa *ofp_ipsec_sa_in_lookup_unsafe(uint16_t vrf,
 							  uint32_t spi);
-
 
 static inline struct ofp_ipsec_sa *ofp_ipsec_sa_by_idx(uint32_t idx)
 {
@@ -126,11 +125,13 @@ static void ofp_ipsec_sa_free(struct ofp_ipsec_sa *sa)
 	odp_spinlock_unlock(&shm->freelist_lock);
 }
 
-static odp_ipsec_sa_t ofp_ipsec_odp_sa_create(const struct ofp_ipsec_sa *sa)
+static odp_ipsec_sa_t ofp_ipsec_odp_sa_create(struct ofp_ipsec_sa *sa)
 {
 	odp_ipsec_sa_param_t odp_param;
-	odp_u32be_t tun_src = odp_cpu_to_be_32(sa->sa_param.tun_src);
-	odp_u32be_t tun_dst = odp_cpu_to_be_32(sa->sa_param.tun_dst);
+	odp_u32be_t tun_src =
+	    odp_cpu_to_be_32(sa->sa_param.tunnel.ipv4.src_addr.s_addr);
+	odp_u32be_t tun_dst =
+	    odp_cpu_to_be_32(sa->sa_param.tunnel.ipv4.dst_addr.s_addr);
 
 	odp_ipsec_crypto_param_t crypto = {
 		.cipher_alg = ODP_CIPHER_ALG_NULL,
@@ -167,11 +168,11 @@ static odp_ipsec_sa_t ofp_ipsec_odp_sa_create(const struct ofp_ipsec_sa *sa)
 
 	odp_ipsec_sa_param_init(&odp_param);
 
-	odp_param.dir = sa->sa_param.direction == OFP_IPSEC_INBOUND ?
+	odp_param.dir = sa->sa_param.dir == OFP_IPSEC_DIR_INBOUND ?
 		ODP_IPSEC_DIR_INBOUND :
 		ODP_IPSEC_DIR_OUTBOUND;
-	odp_param.proto = ODP_IPSEC_ESP;
-	odp_param.mode = sa->sa_param.mode == OFP_IPSEC_TRANSPORT ?
+	odp_param.proto = ODP_IPSEC_PROTO_ESP;
+	odp_param.mode = sa->sa_param.mode == OFP_IPSEC_MODE_TRANSPORT ?
 		ODP_IPSEC_MODE_TRANSPORT :
 		ODP_IPSEC_MODE_TUNNEL;
 	odp_param.crypto = crypto;
@@ -191,8 +192,8 @@ static odp_ipsec_sa_t ofp_ipsec_odp_sa_create(const struct ofp_ipsec_sa *sa)
 	return odp_ipsec_sa_create(&odp_param);
 }
 
-static int ofp_ipsec_sa_init(struct ofp_ipsec_sa *sa,
-			     const ofp_ipsec_sa_param *param)
+static int ofp_ipsec_sa_init(uint16_t vrf, ofp_ipsec_sa_handle sa,
+			     const ofp_ipsec_sa_param_t *param)
 {
 	sa->odp_sa = ofp_ipsec_odp_sa_create(sa);
 	if (sa->odp_sa == ODP_IPSEC_SA_INVALID)
@@ -203,17 +204,14 @@ static int ofp_ipsec_sa_init(struct ofp_ipsec_sa *sa,
 
 	odp_rwlock_write_lock(&shm->lock);
 
-	if (ofp_ipsec_sa_find_by_id(shm->inbound_sa_list,
-				    param->vrf, param->id) ||
-	    ofp_ipsec_sa_find_by_id(shm->outbound_sa_list,
-				    param->vrf, param->id)) {
-
+	if (ofp_ipsec_sa_find(shm->inbound_sa_list, vrf, sa) ||
+	    ofp_ipsec_sa_find(shm->outbound_sa_list, vrf, sa)) {
 		odp_ipsec_sa_destroy(sa->odp_sa);
 		odp_rwlock_write_unlock(&shm->lock);
 		return -1;
 	}
-	if (param->direction == OFP_IPSEC_INBOUND) {
-		if (ofp_ipsec_sa_in_lookup_unsafe(param->vrf, param->spi)) {
+	if (param->dir == OFP_IPSEC_DIR_INBOUND) {
+		if (ofp_ipsec_sa_in_lookup_unsafe(vrf, param->spi)) {
 			odp_ipsec_sa_destroy(sa->odp_sa);
 			odp_rwlock_write_unlock(&shm->lock);
 			return -1;
@@ -229,25 +227,27 @@ static int ofp_ipsec_sa_init(struct ofp_ipsec_sa *sa,
 	return 0;
 }
 
-struct ofp_ipsec_sa *ofp_ipsec_sa_create(const ofp_ipsec_sa_param *param)
+ofp_ipsec_sa_handle ofp_ipsec_sa_create(uint16_t vrf,
+					const ofp_ipsec_sa_param_t *param)
 {
 	struct ofp_ipsec_sa *sa = ofp_ipsec_sa_alloc();
 	if (!sa)
 		return OFP_IPSEC_SA_INVALID;
 
-	if (ofp_ipsec_sa_init(sa, param)) {
+	if (ofp_ipsec_sa_init(vrf, sa, param)) {
 		ofp_ipsec_sa_free(sa);
 		return OFP_IPSEC_SA_INVALID;
 	}
 	return sa;
 }
 
-void ofp_ipsec_sa_destroy(struct ofp_ipsec_sa *sa)
+int ofp_ipsec_sa_destroy(uint16_t vrf, struct ofp_ipsec_sa *sa)
 {
 	uint32_t *link;
 	int found = 0;
+	(void)vrf; /* TODO: unused */
 
-	if (sa->sa_param.direction == OFP_IPSEC_INBOUND)
+	if (sa->sa_param.dir == OFP_IPSEC_DIR_INBOUND)
 		link = &shm->inbound_sa_list;
 	else
 		link = &shm->outbound_sa_list;
@@ -266,6 +266,7 @@ void ofp_ipsec_sa_destroy(struct ofp_ipsec_sa *sa)
 	if (found)
 		ofp_ipsec_sa_unref(sa);
 	/* TODO: error if not found */
+	return 0;
 }
 
 void ofp_ipsec_sa_iterate(ofp_ipsec_sa_cb cb, void *ctx)
@@ -325,9 +326,8 @@ struct ofp_ipsec_sa *ofp_ipsec_sa_in_lookup(uint16_t vrf, uint32_t spi)
 	return sa;
 }
 
-static struct ofp_ipsec_sa *ofp_ipsec_sa_find_by_id(uint32_t list_head,
-						    uint16_t vrf,
-						    uint32_t id)
+static struct ofp_ipsec_sa *ofp_ipsec_sa_find(uint32_t list_head, uint16_t vrf,
+					      ofp_ipsec_sa_handle h)
 {
 	uint32_t idx = list_head;
 	struct ofp_ipsec_sa *sa;
@@ -335,26 +335,13 @@ static struct ofp_ipsec_sa *ofp_ipsec_sa_find_by_id(uint32_t list_head,
 
 	while (idx) {
 		sa = ofp_ipsec_sa_by_idx(idx);
-		if (sa->sa_param.vrf == vrf && sa->sa_param.id == id) {
+		if (sa->sa_param.vrf == vrf && sa == h) {
 			found = sa;
 			break;
 		}
 		idx = sa->next;
 	}
 	return found;
-}
-
-struct ofp_ipsec_sa *ofp_ipsec_sa_lookup_by_id(uint16_t vrf, uint32_t id)
-{
-	struct ofp_ipsec_sa *sa = NULL;
-
-	odp_rwlock_read_lock(&shm->lock);
-	sa = ofp_ipsec_sa_find_by_id(shm->inbound_sa_list, vrf, id);
-	if (!sa)
-		ofp_ipsec_sa_find_by_id(shm->outbound_sa_list, vrf, id);
-	ofp_ipsec_sa_ref(sa);
-	odp_rwlock_read_unlock(&shm->lock);
-	return sa;
 }
 
 void ofp_ipsec_sa_ref(struct ofp_ipsec_sa *sa)
@@ -396,7 +383,7 @@ odp_ipsec_sa_t ofp_ipsec_sa_get_odp_sa(struct ofp_ipsec_sa *sa)
 	return sa->odp_sa;
 }
 
-const ofp_ipsec_sa_param *ofp_ipsec_sa_get_param(struct ofp_ipsec_sa *sa)
+const ofp_ipsec_sa_param_t *ofp_ipsec_sa_get_param(struct ofp_ipsec_sa *sa)
 {
 	return &sa->sa_param;
 }

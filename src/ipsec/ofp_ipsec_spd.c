@@ -17,7 +17,7 @@
 
 
 struct ofp_ipsec_sp {
-	ofp_ipsec_sp_param param;
+	ofp_ipsec_sp_param_t param;
 	ofp_ipsec_sa_handle sa;
 	odp_ipsec_sa_t odp_sa;
 	struct ofp_ipsec_sp *next;
@@ -71,11 +71,11 @@ static void ofp_ipsec_sp_free(struct ofp_ipsec_sp *sp)
 
 static struct ofp_ipsec_sp **ofp_ipsec_find_in_list(struct ofp_ipsec_sp **link,
 						    uint16_t vrf,
-						    uint32_t id)
+						    ofp_ipsec_sp_handle h)
 {
 	while (*link) {
 		if ((*link)->param.vrf == vrf &&
-		    (*link)->param.id == id) {
+		    (*link) == h) {
 			return link;
 		}
 		link = &(*link)->next;
@@ -87,13 +87,14 @@ static struct ofp_ipsec_sp **ofp_ipsec_find_in_list(struct ofp_ipsec_sp **link,
  * Find a SP and return a pointer to the linked list link to it (i.e. ptr
  * to either the list head or the next field of the previous sp in the list).
  */
-static struct ofp_ipsec_sp **ofp_ipsec_find_sp(uint16_t vrf, uint32_t id)
+static struct ofp_ipsec_sp **ofp_ipsec_sp_find(uint16_t vrf,
+					       ofp_ipsec_sp_handle h)
 {
 	struct ofp_ipsec_sp **link;
 
-	link = ofp_ipsec_find_in_list(&shm->outbound_sp_list, vrf, id);
+	link = ofp_ipsec_find_in_list(&shm->outbound_sp_list, vrf, h);
 	if (!link)
-		link = ofp_ipsec_find_in_list(&shm->inbound_sp_list, vrf, id);
+		link = ofp_ipsec_find_in_list(&shm->inbound_sp_list, vrf, h);
 	return link;
 }
 
@@ -112,32 +113,30 @@ static void ofp_ipsec_sp_insert(struct ofp_ipsec_sp **link,
 	*link = sp;
 }
 
-int ofp_ipsec_sp_create(const ofp_ipsec_sp_param *param)
+ofp_ipsec_sp_handle ofp_ipsec_sp_create(uint16_t vrf,
+					const ofp_ipsec_sp_param_t *param)
 {
 	struct ofp_ipsec_sp *sp;
-	int ret = 0;
+	/* TODO: unused vrf */
+	(void)vrf;
 
 	odp_rwlock_write_lock(&shm->lock);
 
-	if (ofp_ipsec_find_sp(param->vrf, param->id)) {
-		ret = -1;
-		goto fail;
-	}
 	sp = ofp_ipsec_sp_alloc();
 	if (!sp) {
-		ret = -1;
+		sp = OFP_IPSEC_SP_INVALID;
 		goto fail;
 	}
-	if (param->direction == OFP_IPSEC_INBOUND)
+	if (param->dir == OFP_IPSEC_DIR_INBOUND)
 		ofp_ipsec_sp_insert(&shm->inbound_sp_list, sp);
 	else
 		ofp_ipsec_sp_insert(&shm->outbound_sp_list, sp);
 fail:
 	odp_rwlock_write_unlock(&shm->lock);
-	return ret;
+	return sp;
 }
 
-int ofp_ipsec_sp_destroy(uint16_t vrf, uint32_t id)
+int ofp_ipsec_sp_destroy(uint16_t vrf, ofp_ipsec_sp_handle h)
 {
 	struct ofp_ipsec_sp **link;
 	struct ofp_ipsec_sp *sp;
@@ -145,7 +144,7 @@ int ofp_ipsec_sp_destroy(uint16_t vrf, uint32_t id)
 
 	odp_rwlock_write_lock(&shm->lock);
 
-	link = ofp_ipsec_find_sp(vrf, id);
+	link = ofp_ipsec_sp_find(vrf, h);
 	if (link) {
 		found = 1;
 		sp = *link;
@@ -157,14 +156,16 @@ int ofp_ipsec_sp_destroy(uint16_t vrf, uint32_t id)
 	return !found;
 }
 
-int ofp_ipsec_sp_set_sa(uint16_t vrf, uint32_t id, ofp_ipsec_sa_handle sa)
+/* TODO: rename to _bind()? */
+static __attribute__((unused))
+int ofp_ipsec_sp_set_sa(uint16_t vrf, ofp_ipsec_sp_handle sp, ofp_ipsec_sa_handle sa)
 {
 	struct ofp_ipsec_sp **link;
 	int ret = -1;
 
 	odp_rwlock_write_lock(&shm->lock);
 
-	link = ofp_ipsec_find_sp(vrf, id);
+	link = ofp_ipsec_sp_find(vrf, sp);
 	if (link) {
 		ofp_ipsec_sa_handle old_sa = (*link)->sa;
 		if (old_sa != OFP_IPSEC_SA_INVALID)
@@ -198,21 +199,21 @@ static void ofp_ipsec_get_selector_values(odp_packet_t pkt,
 static int ofp_ipsec_sp_match(const struct ofp_ipsec_sp *sp,
 			      const struct ofp_ipsec_selector_values *sel)
 {
-	if (sel->dst_addr < sp->param.selectors.dst_addr.begin ||
-	    sel->dst_addr > sp->param.selectors.dst_addr.end)
+	if (sel->dst_addr <
+		sp->param.selector.dst_ipv4_range.first_addr.s_addr ||
+	    sel->dst_addr > sp->param.selector.dst_ipv4_range.last_addr.s_addr)
 		return 0;
-	if (sel->ip_proto < sp->param.selectors.proto.begin ||
-	    sel->ip_proto > sp->param.selectors.proto.end)
+	if (sel->ip_proto != sp->param.selector.ip_proto)
 		return 0;
 	return -1;
 }
 
-static inline ofp_ipsec_sp_action ofp_ipsec_sp_lookup(struct ofp_ipsec_sp *sp,
+static inline ofp_ipsec_action_t ofp_ipsec_sp_lookup(struct ofp_ipsec_sp *sp,
 						      uint16_t vrf,
 						      odp_packet_t pkt,
 						      ofp_ipsec_sa_handle *sa)
 {
-	ofp_ipsec_sp_action action;
+	ofp_ipsec_action_t action;
 	struct ofp_ipsec_selector_values sel;
 
 	ofp_ipsec_get_selector_values(pkt, &sel);
@@ -236,13 +237,13 @@ static inline ofp_ipsec_sp_action ofp_ipsec_sp_lookup(struct ofp_ipsec_sp *sp,
 
 	return action;
 }
-ofp_ipsec_sp_action ofp_ipsec_sp_out_lookup(uint16_t vrf, odp_packet_t pkt,
+ofp_ipsec_action_t ofp_ipsec_sp_out_lookup(uint16_t vrf, odp_packet_t pkt,
 					    ofp_ipsec_sa_handle *sa)
 {
 	return ofp_ipsec_sp_lookup(shm->outbound_sp_list, vrf, pkt, sa);
 }
 
-ofp_ipsec_sp_action ofp_ipsec_sp_in_lookup(uint16_t vrf, odp_packet_t pkt)
+ofp_ipsec_action_t ofp_ipsec_sp_in_lookup(uint16_t vrf, odp_packet_t pkt)
 {
 	return ofp_ipsec_sp_lookup(shm->inbound_sp_list, vrf, pkt, NULL);
 }
